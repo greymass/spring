@@ -365,6 +365,7 @@ void state_history_plugin_impl::plugin_startup() {
          app().quit();
       });
    } catch(std::exception& ex) {
+      fc_elog( _log, "Exception during plugin startup, exiting: ${e}", ("e", ex.what()) );
       appbase::app().quit();
    }
 }
