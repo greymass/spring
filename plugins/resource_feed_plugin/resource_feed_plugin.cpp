@@ -29,6 +29,7 @@ fc::logger        _resource_feed_log;
 constexpr uint32_t DEFAULT_CHUNK_SIZE          = 10000;
 constexpr uint32_t DEFAULT_MAX_QUEUE_MB        = 64;
 constexpr uint32_t DEFAULT_HEAD_THRESHOLD_SEC  = 300;
+constexpr const char* DEFAULT_SOCKET_MODE      = "0660";
 
 struct resource_feed_plugin_impl {
 private:
@@ -37,6 +38,7 @@ private:
    uint32_t              chunk_size         = 0;
    uint32_t              max_queue_mb       = 0;
    uint32_t              head_threshold_sec = 0;
+   uint32_t              socket_mode        = 0;
 
    std::unique_ptr<resource_feed::feed_server>          server;
    std::map<uint64_t, resource_feed::snapshot_walker>   walkers;
@@ -67,10 +69,16 @@ void resource_feed_plugin_impl::plugin_initialize(const variables_map& options) 
       max_queue_mb       = options.at("resource-feed-max-queue-mb").as<uint32_t>();
       head_threshold_sec = options.at("resource-feed-head-threshold-sec").as<uint32_t>();
 
+      const auto mode_option = options.at("resource-feed-socket-mode").as<std::string>();
+      size_t     mode_end    = 0;
+      socket_mode            = static_cast<uint32_t>(std::stoul(mode_option, &mode_end, 8));
+      EOS_ASSERT(mode_end == mode_option.size(), chain::plugin_config_exception,
+                 "resource-feed-socket-mode must be octal, got '${m}'", ("m", mode_option));
+
       fc_ilog(_resource_feed_log, "Resource feed socket path: ${p}", ("p", socket_path.string()));
 
-      server = std::make_unique<resource_feed::feed_server>(socket_path,
-                                                           static_cast<size_t>(max_queue_mb) * 1024 * 1024);
+      server = std::make_unique<resource_feed::feed_server>(
+         socket_path, static_cast<size_t>(max_queue_mb) * 1024 * 1024, socket_mode);
 
       accepted_block_connection.emplace(chain.accepted_block().connect([&](const block_signal_params& t) {
          const auto& [block, id] = t;
@@ -183,6 +191,8 @@ void resource_feed_plugin::set_program_options(options_description& cli, options
            "maximum per-client send queue size in megabytes before disconnecting (default: 64)");
    options("resource-feed-head-threshold-sec", bpo::value<uint32_t>()->default_value(DEFAULT_HEAD_THRESHOLD_SEC),
            "seconds behind head after which the feed is considered not caught up (default: 300)");
+   options("resource-feed-socket-mode", bpo::value<std::string>()->default_value(DEFAULT_SOCKET_MODE),
+           "octal permission mode applied to the resource feed unix socket (default: 0660)");
 }
 
 void resource_feed_plugin::plugin_initialize(const variables_map& options) {

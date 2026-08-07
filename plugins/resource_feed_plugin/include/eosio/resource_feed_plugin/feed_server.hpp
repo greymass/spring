@@ -19,7 +19,7 @@ namespace eosio::resource_feed {
 
 class feed_server {
 public:
-   feed_server(const std::filesystem::path& socket_path, size_t max_queue_bytes);
+   feed_server(const std::filesystem::path& socket_path, size_t max_queue_bytes, uint32_t socket_mode = 0660);
    ~feed_server();
 
    feed_server(const feed_server&)            = delete;
@@ -64,6 +64,7 @@ private:
 
    std::filesystem::path _socket_path;
    size_t                _max_queue_bytes;
+   uint32_t              _socket_mode;
 
    boost::asio::io_context                                                                _ioc;
    std::optional<protocol::acceptor>                                                      _acceptor;

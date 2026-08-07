@@ -10,6 +10,7 @@
 #include <chrono>
 #include <filesystem>
 #include <string>
+#include <sys/stat.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
@@ -206,6 +207,18 @@ BOOST_AUTO_TEST_CASE(disconnect_all_drops_every_client) {
    while (!ec)
       sock_a.read_some(boost::asio::buffer(buf), ec);
    BOOST_CHECK(ec == boost::asio::error::eof || ec == boost::asio::error::connection_reset);
+
+   server.stop();
+}
+
+BOOST_AUTO_TEST_CASE(socket_is_created_with_the_configured_mode) {
+   temp_socket_path sp;
+   feed_server      server(sp.path, 4 * 1024 * 1024, 0640);
+   server.start();
+
+   struct ::stat st {};
+   BOOST_REQUIRE_EQUAL(::stat(sp.path.c_str(), &st), 0);
+   BOOST_CHECK_EQUAL(st.st_mode & 07777, 0640u);
 
    server.stop();
 }

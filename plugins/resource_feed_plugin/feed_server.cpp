@@ -3,15 +3,18 @@
 #include <boost/asio/post.hpp>
 #include <boost/asio/write.hpp>
 
+#include <fc/exception/exception.hpp>
 #include <fc/log/logger.hpp>
 
+#include <sys/stat.h>
 #include <utility>
 
 namespace eosio::resource_feed {
 
-feed_server::feed_server(const std::filesystem::path& socket_path, size_t max_queue_bytes)
+feed_server::feed_server(const std::filesystem::path& socket_path, size_t max_queue_bytes, uint32_t socket_mode)
    : _socket_path(socket_path)
-   , _max_queue_bytes(max_queue_bytes) {}
+   , _max_queue_bytes(max_queue_bytes)
+   , _socket_mode(socket_mode) {}
 
 feed_server::~feed_server() {
    stop();
@@ -26,6 +29,9 @@ void feed_server::start() {
 
    _ioc.restart();
    _acceptor.emplace(_ioc, protocol::endpoint(_socket_path.string()));
+   FC_ASSERT(::chmod(_socket_path.c_str(), static_cast<mode_t>(_socket_mode)) == 0,
+             "unable to set resource feed socket ${p} to mode ${m}",
+             ("p", _socket_path.string())("m", _socket_mode));
    _work.emplace(boost::asio::make_work_guard(_ioc));
    _running = true;
 
