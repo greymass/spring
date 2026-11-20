@@ -4,12 +4,12 @@
 
 namespace eosio {
 
-class tracewriter_plugin : public plugin<tracewriter_plugin> {
+class roborovski_writer_plugin : public plugin<roborovski_writer_plugin> {
 public:
    APPBASE_PLUGIN_REQUIRES((chain_plugin))
 
-   tracewriter_plugin();
-   virtual ~tracewriter_plugin();
+   roborovski_writer_plugin();
+   virtual ~roborovski_writer_plugin();
 
    virtual void set_program_options(options_description& cli, options_description& cfg) override;
 
@@ -20,7 +20,7 @@ public:
    void handle_sighup() override;
 
 private:
-   unique_ptr<struct tracewriter_plugin_impl> my;
+   unique_ptr<struct roborovski_writer_plugin_impl> my;
 };
 
 } // namespace eosio
