@@ -1,0 +1,1 @@
+[{"slice_num":0,"start_block":1,"end_block":10000,"max_block":10000,"blocks_per_slice":10000,"finalized":true,"glob_min":20,"glob_max":100009},{"slice_num":1,"start_block":10001,"end_block":10006,"max_block":20000,"blocks_per_slice":10000,"finalized":false,"glob_min":100010,"glob_max":100069}]

@@ -1,12 +1,13 @@
 #pragma once
 #include <eosio/chain/application.hpp>
 #include <eosio/chain_plugin/chain_plugin.hpp>
+#include <eosio/http_plugin/http_plugin.hpp>
 
 namespace eosio {
 
 class roborovski_writer_plugin : public plugin<roborovski_writer_plugin> {
 public:
-   APPBASE_PLUGIN_REQUIRES((chain_plugin))
+   APPBASE_PLUGIN_REQUIRES((chain_plugin)(http_plugin))
 
    roborovski_writer_plugin();
    virtual ~roborovski_writer_plugin();

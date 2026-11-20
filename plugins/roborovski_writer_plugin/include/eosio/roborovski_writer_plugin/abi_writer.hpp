@@ -4,6 +4,7 @@
 #include <fc/io/cfile.hpp>
 
 #include <filesystem>
+#include <utility>
 
 namespace eosio::roborovski_writer {
 
@@ -23,6 +24,12 @@ public:
 
    void write(const abi_record& record);
    void flush();
+
+   struct extent {
+      uint64_t data_end  = 0;
+      uint32_t index_len = 0;
+   };
+   extent sync();
 
 private:
    std::filesystem::path dir;

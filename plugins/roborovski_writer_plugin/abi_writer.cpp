@@ -1,15 +1,7 @@
 #include <eosio/roborovski_writer_plugin/abi_writer.hpp>
+#include <eosio/roborovski_writer_plugin/store_format.hpp>
 
 namespace eosio::roborovski_writer {
-
-namespace {
-
-void put_le(char* out, uint64_t v, int bytes) {
-   for (int i = 0; i < bytes; ++i)
-      out[i] = static_cast<char>(v >> (8 * i));
-}
-
-} // namespace
 
 abi_writer::abi_writer(const std::filesystem::path& d)
    : dir(d) {
@@ -58,6 +50,13 @@ void abi_writer::write(const abi_record& record) {
 
    data_offset += DATA_HEADER_SIZE + record.json.size();
    ++entry_count;
+}
+
+abi_writer::extent abi_writer::sync() {
+   flush();
+   sync_fd(data_file.fileno(), (dir / "abis.dat").string());
+   sync_fd(index_file.fileno(), (dir / "abis.index").string());
+   return {data_offset, static_cast<uint32_t>(entry_count)};
 }
 
 void abi_writer::flush() {

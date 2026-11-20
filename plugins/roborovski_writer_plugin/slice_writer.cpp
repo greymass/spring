@@ -1,4 +1,6 @@
+#include <eosio/roborovski_writer_plugin/recovery.hpp>
 #include <eosio/roborovski_writer_plugin/slice_writer.hpp>
+#include <eosio/roborovski_writer_plugin/store_format.hpp>
 
 #include <fc/crypto/sha256.hpp>
 #include <fc/io/json.hpp>
@@ -12,22 +14,6 @@
 namespace eosio::roborovski_writer {
 
 namespace {
-
-void put_le(char* out, uint64_t v, int bytes) {
-   for (int i = 0; i < bytes; ++i)
-      out[i] = static_cast<char>(v >> (8 * i));
-}
-
-uint64_t get_le(const char* in, int bytes) {
-   uint64_t v = 0;
-   for (int i = 0; i < bytes; ++i)
-      v |= static_cast<uint64_t>(static_cast<uint8_t>(in[i])) << (8 * i);
-   return v;
-}
-
-uint32_t slice_start(uint32_t slice_num) { return slice_num * BLOCKS_PER_SLICE + 1; }
-uint32_t slice_max(uint32_t slice_num) { return (slice_num + 1) * BLOCKS_PER_SLICE; }
-uint32_t slice_of(uint32_t block_num) { return block_num == 0 ? 0 : (block_num - 1) / BLOCKS_PER_SLICE; }
 
 void write_file_atomic(const std::filesystem::path& path, const std::string& content) {
    auto tmp = path;
@@ -165,6 +151,11 @@ void slice_writer::validate_layout() {
    }
 
    auto var = fc::json::from_file(json_path);
+   if (var.is_null()) {
+      if (!dirs.empty())
+         throw layout_exception("slices.json in " + base_dir.string() + " lists no slices but slice directories exist");
+      return;
+   }
    if (!var.is_array())
       throw layout_exception("slices.json is not an array");
    for (const auto& elem : var.get_array()) {
@@ -208,6 +199,7 @@ void slice_writer::load_active_slice() {
    const auto& newest = infos.back();
    if (newest.finalized) {
       last_block = newest.end_block;
+      load_newest_bounds();
       return;
    }
 
@@ -242,8 +234,21 @@ void slice_writer::load_active_slice() {
 
    if (!entries.empty()) {
       last_block = entries.back().block_num;
+      tail       = {last_block, data_offset, static_cast<uint32_t>(entries.size())};
    } else if (infos.size() > 1) {
       last_block = infos[infos.size() - 2].end_block;
+      load_newest_bounds();
+   }
+}
+
+void slice_writer::load_newest_bounds() {
+   for (auto it = infos.rbegin(); it != infos.rend(); ++it) {
+      auto idx = read_index(base_dir / slice_dir_name(it->slice_num) / "blocks.index");
+      if (idx.empty())
+         continue;
+      const auto& e = idx.back();
+      tail          = {e.block_num, e.offset + RECORD_OVERHEAD + e.compressed_size, static_cast<uint32_t>(idx.size())};
+      return;
    }
 }
 
@@ -251,6 +256,8 @@ void slice_writer::open_slice(uint32_t slice_num) {
    active_slice_num = slice_num;
    active_dir       = base_dir / slice_dir_name(slice_num);
    std::filesystem::create_directories(active_dir);
+   root_changed = true;
+   unsynced_dirs.insert(active_dir);
 
    data_log = std::make_unique<fc::cfile>();
    data_log->set_file_path(active_dir / "data.log");
@@ -285,17 +292,25 @@ void slice_writer::open_slice(uint32_t slice_num) {
 }
 
 void slice_writer::append(const built_block& block) {
-   if (last_block != 0 && block.block_num != last_block + 1)
-      throw data_corruption_exception("core storage ends at block " + std::to_string(last_block) +
-                                      " and cannot accept block " + std::to_string(block.block_num));
+   append_compressed(block.block_num, compress(block.blob), block.glob_min, block.glob_max);
+}
 
-   const uint32_t target = slice_of(block.block_num);
-   if (has_active && target != active_slice_num)
+void slice_writer::append_compressed(uint32_t block_num, const std::vector<char>& compressed, uint64_t glob_min,
+                                     uint64_t glob_max) {
+   if (last_block != 0 && block_num != last_block + 1)
+      throw data_corruption_exception("core storage ends at block " + std::to_string(last_block) +
+                                      " and cannot accept block " + std::to_string(block_num));
+
+   const uint32_t target  = slice_of(block_num);
+   bool           rotated = false;
+   if (has_active && target != active_slice_num) {
       finalize_active_slice();
+      rotated = true;
+   }
    if (!has_active)
       open_slice(target);
-
-   const auto compressed = compress(block.blob);
+   if (rotated && on_rotate)
+      on_rotate(target);
 
    boost::crc_32_type crc;
    crc.process_bytes(compressed.data(), compressed.size());
@@ -309,16 +324,39 @@ void slice_writer::append(const built_block& block) {
    data_log->write(crc_le, 4);
 
    blocks_index_entry entry;
-   entry.block_num       = block.block_num;
+   entry.block_num       = block_num;
    entry.offset          = data_offset;
    entry.compressed_size = static_cast<uint32_t>(compressed.size());
-   entry.glob_min        = block.glob_min;
-   entry.glob_max        = block.glob_max;
+   entry.glob_min        = glob_min;
+   entry.glob_max        = glob_max;
    entries.push_back(entry);
 
    data_offset      += RECORD_OVERHEAD + compressed.size();
    bytes_compressed += compressed.size();
-   last_block        = block.block_num;
+   last_block        = block_num;
+   tail              = {block_num, data_offset, static_cast<uint32_t>(entries.size())};
+   unsynced_dirs.insert(active_dir);
+}
+
+slice_bounds slice_writer::sync() {
+   if (has_active) {
+      data_log->flush();
+      sync_fd(data_log->fileno(), (active_dir / "data.log").string());
+      write_index();
+   }
+   for (const auto& dir : unsynced_dirs) {
+      for (const char* name : {"data.log", "blocks.index"}) {
+         if (std::filesystem::exists(dir / name))
+            sync_file(dir / name);
+      }
+      sync_dir(dir);
+   }
+   unsynced_dirs.clear();
+   if (root_changed) {
+      sync_dir(base_dir);
+      root_changed = false;
+   }
+   return tail;
 }
 
 void slice_writer::flush() {
