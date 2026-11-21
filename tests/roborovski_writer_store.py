@@ -20,7 +20,7 @@ def readManifest(store):
     (magic, _, _, coreUUID, abiUUID, epoch, head, abiIndexLen, headID,
      sliceDataEnd, sliceIndexLen, abiFloor, abiDataEnd, _, _) = MANIFEST.unpack(raw)
     assert magic == b"RBMANIF\0", f"bad manifest magic {magic}"
-    return {"epoch": epoch, "head": head, "abiIndexLen": abiIndexLen, "headID": headID.hex(),
+    return {"epoch": epoch, "head": head, "abiIndexLen": abiIndexLen, "headID": headID.hex(), "abiFloor": abiFloor,
             "sliceDataEnd": sliceDataEnd, "sliceIndexLen": sliceIndexLen, "abiDataEnd": abiDataEnd}
 
 
@@ -108,7 +108,7 @@ def launchExpectingExit(node, swapFlags, timeout):
         if k in cmd:
             cmd[cmd.index(k) + 1] = v
         else:
-            cmd.extend([k, v])
+            cmd.extend([k] if v is None else [k, v])
     node.popenProc = node.launchCmd(cmd, node.data_dir, launch_time=datetime.now().strftime("%Y_%m_%d_%H_%M_%S"))
     node.pid = node.popenProc.pid
     node.cmd = cmd
