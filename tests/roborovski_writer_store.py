@@ -26,7 +26,7 @@ def readManifest(store):
             "sliceDataEnd": sliceDataEnd, "sliceIndexLen": sliceIndexLen, "abiDataEnd": abiDataEnd}
 
 
-def committedView(store):
+def committedView(store, abiRoot=None):
     """Digest of every record and ABI byte the manifest marks committed."""
     m = readManifest(store)
     blocks = {}
@@ -48,7 +48,7 @@ def committedView(store):
             assert end <= len(data), f"block {num} lies past committed data in {sliceDir}"
             assert num not in blocks, f"block {num} stored twice"
             blocks[num] = hashlib.sha256(data[offset:end]).hexdigest()
-    abiRoot = os.path.join(store, "abis")
+    abiRoot = abiRoot or os.path.join(store, "abis")
     with open(os.path.join(abiRoot, "abis.dat"), "rb") as f:
         abiData = f.read()[:m["abiDataEnd"]]
     with open(os.path.join(abiRoot, "abis.index"), "rb") as f:
@@ -107,6 +107,10 @@ class HeadWatcher(threading.Thread):
 def launchExpectingExit(node, swapFlags, timeout):
     """Starts a stopped node with swapped flags and returns its exit code, or None if it is still running."""
     cmd = node.cmd[:]
+    for flag in ("--genesis-json", "--genesis-timestamp"):
+        if flag in cmd:
+            i = cmd.index(flag)
+            del cmd[i:i + 2]
     for k, v in swapFlags.items():
         if k in cmd:
             cmd[cmd.index(k) + 1] = v
