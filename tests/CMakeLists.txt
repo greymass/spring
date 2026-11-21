@@ -60,6 +60,7 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/roborovski_writer_crash_test.py ${CMA
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/roborovski_writer_store.py ${CMAKE_CURRENT_BINARY_DIR}/roborovski_writer_store.py COPYONLY)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/roborovski_writer_two_writers_test.py ${CMAKE_CURRENT_BINARY_DIR}/roborovski_writer_two_writers_test.py COPYONLY)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/roborovski_writer_restart_test.py ${CMAKE_CURRENT_BINARY_DIR}/roborovski_writer_restart_test.py COPYONLY)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/roborovski_writer_fork_test.py ${CMAKE_CURRENT_BINARY_DIR}/roborovski_writer_fork_test.py COPYONLY)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/ship_test.py ${CMAKE_CURRENT_BINARY_DIR}/ship_test.py COPYONLY)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/ship_streamer_test.py ${CMAKE_CURRENT_BINARY_DIR}/ship_streamer_test.py COPYONLY)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/ship_kill_client_test.py ${CMAKE_CURRENT_BINARY_DIR}/ship_kill_client_test.py COPYONLY)
@@ -179,6 +180,7 @@ add_lr_test(NAME ship_streamer_if_fetch_finality_data_test COMMAND tests/ship_st
 add_lr_test(NAME roborovski_writer_crash_test COMMAND tests/roborovski_writer_crash_test.py -v ${UNSHARE})
 add_lr_test(NAME roborovski_writer_two_writers_test COMMAND tests/roborovski_writer_two_writers_test.py -v ${UNSHARE})
 add_lr_test(NAME roborovski_writer_restart_test COMMAND tests/roborovski_writer_restart_test.py -v ${UNSHARE})
+add_lr_test(NAME roborovski_writer_fork_test COMMAND tests/roborovski_writer_fork_test.py -v ${UNSHARE})
 add_np_test(NAME ship_kill_client_test COMMAND tests/ship_kill_client_test.py -v --num-clients 20 ${UNSHARE})
 
 add_np_test(NAME p2p_dawn515_test COMMAND tests/p2p_tests/dawn_515/test.sh)

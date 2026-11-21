@@ -2,6 +2,7 @@ import glob
 import hashlib
 import os
 import struct
+import subprocess
 import threading
 import time
 from datetime import datetime
@@ -12,6 +13,7 @@ from TestHarness import Utils
 
 MANIFEST = struct.Struct("<8sII16s16sQII32sQIIQII")
 INDEX_ENTRY = struct.Struct("<IQIQQ")
+RECORD_OVERHEAD = 8
 
 
 def readManifest(store):
@@ -42,9 +44,10 @@ def committedView(store):
             data = data[:m["sliceDataEnd"]]
         for i in range(count):
             num, offset, size, _, _ = INDEX_ENTRY.unpack_from(index, 4 + i * INDEX_ENTRY.size)
-            assert offset + size <= len(data), f"block {num} lies past committed data in {sliceDir}"
+            end = offset + RECORD_OVERHEAD + size
+            assert end <= len(data), f"block {num} lies past committed data in {sliceDir}"
             assert num not in blocks, f"block {num} stored twice"
-            blocks[num] = hashlib.sha256(data[offset:offset + size]).hexdigest()
+            blocks[num] = hashlib.sha256(data[offset:end]).hexdigest()
     abiRoot = os.path.join(store, "abis")
     with open(os.path.join(abiRoot, "abis.dat"), "rb") as f:
         abiData = f.read()[:m["abiDataEnd"]]
@@ -118,3 +121,29 @@ def launchExpectingExit(node, swapFlags, timeout):
         node.popenProc.wait()
     markDead(node)
     return code
+
+
+def committedBlockIDs(store, nums):
+    """Block IDs stored in the committed records of the given blocks, read with the zstd command."""
+    m = readManifest(store)
+    ids = {}
+    for sliceDir in sorted(glob.glob(os.path.join(store, "history_*-*"))):
+        first, last = (int(x) for x in os.path.basename(sliceDir)[len("history_"):].split("-"))
+        wanted = [n for n in nums if first <= n <= min(last, m["head"])]
+        if not wanted:
+            continue
+        with open(os.path.join(sliceDir, "blocks.index"), "rb") as f:
+            index = f.read()
+        with open(os.path.join(sliceDir, "data.log"), "rb") as f:
+            data = f.read()
+        entries = {}
+        for i in range((len(index) - 4) // INDEX_ENTRY.size):
+            num, offset, size, _, _ = INDEX_ENTRY.unpack_from(index, 4 + i * INDEX_ENTRY.size)
+            entries[num] = (offset, size)
+        for n in wanted:
+            offset, size = entries[n]
+            payload = data[offset + 4:offset + 4 + size]
+            if payload[:4] == b"\x28\xb5\x2f\xfd":
+                payload = subprocess.run(["zstd", "-dcq"], input=payload, capture_output=True, check=True).stdout
+            ids[n] = payload[8:40].hex()
+    return ids
