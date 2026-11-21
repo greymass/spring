@@ -209,6 +209,10 @@ std::filesystem::path manifest_path(const std::filesystem::path& core_root) {
    return core_root / CONTROL_DIR_NAME / MANIFEST_NAME;
 }
 
+std::filesystem::path published_path(const std::filesystem::path& core_root) {
+   return core_root / CONTROL_DIR_NAME / PUBLISHED_NAME;
+}
+
 std::filesystem::path binding_path(const std::filesystem::path& root) { return root / BINDING_NAME; }
 
 std::vector<char> read_file(const std::filesystem::path& path) {
@@ -304,6 +308,25 @@ void write_file_atomic_durable(const std::filesystem::path& path, const std::vec
    sync_dir(dir);
    if (steps.after_dir_sync)
       steps.after_dir_sync();
+}
+
+void write_file_replace(const std::filesystem::path& path, const std::vector<char>& data) {
+   auto tmp = path.parent_path() / ("." + path.filename().string() + ".tmp-" + std::to_string(::getpid()));
+   int  fd  = open_or_throw(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+   try {
+      write_all(fd, data.data(), data.size(), tmp.string());
+   } catch (...) {
+      ::close(fd);
+      std::filesystem::remove(tmp);
+      throw;
+   }
+   ::close(fd);
+   std::error_code ec;
+   std::filesystem::rename(tmp, path, ec);
+   if (ec) {
+      std::filesystem::remove(tmp);
+      throw io_exception("cannot rename " + tmp.string() + " to " + path.string() + ": " + ec.message());
+   }
 }
 
 void remove_stray_temps(const std::filesystem::path& dir, const std::string& base_name) {

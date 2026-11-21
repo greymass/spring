@@ -78,7 +78,7 @@ std::string digest_line(const fs::path& root, const fs::path& file, bool mask) {
    auto       b      = bytes_of(file);
    const auto name   = file.filename().string();
    bool       masked = false;
-   if (mask && name == MANIFEST_NAME && b.size() == MANIFEST_SIZE) {
+   if (mask && (name == MANIFEST_NAME || name == PUBLISHED_NAME) && b.size() == MANIFEST_SIZE) {
       std::fill(b.begin() + 16, b.begin() + 48, 0);
       std::fill(b.begin() + 124, b.end(), 0);
       masked = true;
@@ -172,6 +172,7 @@ BOOST_AUTO_TEST_CASE(fresh_store_is_bound_and_empty) {
    check_binding_pair(*cb, *ab);
    BOOST_TEST(fs::exists(core / LOCK_NAME));
    BOOST_TEST(fs::exists(core / "abis" / LOCK_NAME));
+   BOOST_TEST((bytes_of(published_path(core)) == bytes_of(manifest_path(core))));
 
    hash_bytes other;
    other.fill(0xcd);
@@ -194,12 +195,14 @@ BOOST_AUTO_TEST_CASE(commit_follows_the_protocol_order) {
          seen.push_back(point);
          const auto m = manifest::read(core);
          BOOST_REQUIRE(m);
-         const std::string p = point;
+         const auto        pv = manifest::parse(bytes_of(published_path(core)));
+         const std::string p  = point;
          if (p == "abi_synced" || p == "core_synced") {
             BOOST_TEST(m->head == 40u);
          } else {
             BOOST_TEST(m->head == 60u);
          }
+         BOOST_TEST(pv.head == (p == "published_renamed" ? 60u : 40u));
          if (p == "core_synced") {
             const auto data = core / slice_dir_name(0) / "data.log";
             BOOST_TEST(fs::file_size(data) > committed_end);
@@ -208,7 +211,8 @@ BOOST_AUTO_TEST_CASE(commit_follows_the_protocol_order) {
       });
       BOOST_TEST(s.commit());
    }
-   const std::vector<std::string> want = {"abi_synced", "core_synced", "manifest_renamed", "manifest_dir_synced"};
+   const std::vector<std::string> want = {"abi_synced", "core_synced", "manifest_renamed", "manifest_dir_synced",
+                                          "published_renamed"};
    BOOST_TEST(seen == want, boost::test_tools::per_element());
 
    const auto m = s.committed();
@@ -219,6 +223,7 @@ BOOST_AUTO_TEST_CASE(commit_follows_the_protocol_order) {
    BOOST_TEST(m.abi_data_end == fs::file_size(core / "abis" / "abis.dat"));
    BOOST_TEST(std::memcmp(m.head_id.data(), make_id(60).data(), 32) == 0);
    BOOST_TEST((manifest::read(core) == m));
+   BOOST_TEST((bytes_of(published_path(core)) == bytes_of(manifest_path(core))));
    BOOST_TEST(!s.commit());
 }
 
@@ -332,7 +337,7 @@ BOOST_AUTO_TEST_CASE(shared_crashed_store_fixtures) {
          }
       }
    }
-   BOOST_TEST(cases == 5u);
+   BOOST_TEST(cases == 6u);
 }
 
 BOOST_AUTO_TEST_CASE(fault_specs_parse) {

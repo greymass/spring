@@ -42,10 +42,12 @@ store::store(const std::filesystem::path& core_dir, const std::filesystem::path&
       throw data_corruption_exception("the ABI cache does not match its committed extent after recovery");
    sync_dir(abi_root);
    std::memcpy(head_id.data(), current.head_id.data(), 32);
+   write_file_replace(published_path(core_root), current.serialize());
 }
 
 void store::load(const hash_bytes& chain_id) {
    remove_stray_temps(core_root / CONTROL_DIR_NAME, MANIFEST_NAME);
+   remove_stray_temps(core_root / CONTROL_DIR_NAME, PUBLISHED_NAME);
    remove_stray_temps(core_root, BINDING_NAME);
    remove_stray_temps(abi_root, BINDING_NAME);
 
@@ -174,6 +176,8 @@ bool store::commit() {
    steps.after_dir_sync = [&] { fault_point("manifest_dir_synced", next.head); };
    write_file_atomic_durable(manifest_path(core_root), next.serialize(), steps);
    current = next;
+   write_file_replace(published_path(core_root), next.serialize());
+   fault_point("published_renamed", next.head);
    return true;
 }
 

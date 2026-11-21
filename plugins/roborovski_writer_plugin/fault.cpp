@@ -12,7 +12,7 @@ namespace {
 
 const std::set<std::string> known_points = {
     "buffer_synced",  "abi_synced",   "core_synced",       "manifest_renamed",
-    "manifest_dir_synced", "segment_reclaimed", "slice_rotated", "abi_initialized",
+    "manifest_dir_synced", "published_renamed", "segment_reclaimed", "slice_rotated", "abi_initialized",
 };
 
 std::optional<fault_spec>                         active;

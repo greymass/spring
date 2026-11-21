@@ -24,6 +24,7 @@ constexpr size_t BINDING_SIZE  = 96;
 
 inline const std::string CONTROL_DIR_NAME = "control";
 inline const std::string MANIFEST_NAME    = "manifest";
+inline const std::string PUBLISHED_NAME   = "published";
 inline const std::string BINDING_NAME     = "store.binding";
 inline const std::string LOCK_NAME        = "writer.lock";
 
@@ -69,6 +70,7 @@ std::string format_uuid(const uuid_type& u);
 std::string hex(const uint8_t* data, size_t size);
 
 std::filesystem::path manifest_path(const std::filesystem::path& core_root);
+std::filesystem::path published_path(const std::filesystem::path& core_root);
 std::filesystem::path binding_path(const std::filesystem::path& root);
 
 std::vector<char> read_file(const std::filesystem::path& path);
@@ -85,6 +87,8 @@ struct atomic_write_steps {
 };
 void write_file_atomic_durable(const std::filesystem::path& path, const std::vector<char>& data,
                                const atomic_write_steps& steps = {});
+// Replaces path by rename with no sync, so after a power cut it can only hold an older copy.
+void write_file_replace(const std::filesystem::path& path, const std::vector<char>& data);
 void remove_stray_temps(const std::filesystem::path& dir, const std::string& base_name);
 
 uint64_t free_bytes(const std::filesystem::path& dir);
