@@ -228,18 +228,20 @@ try:
 
     what = "committed history has a conflicting identity"
     stop(writer)
-    manifestPath = os.path.join(store, "control", "manifest")
-    with open(manifestPath, "rb") as f:
+    controlPaths = [os.path.join(store, "control", name) for name in ("manifest", "published")]
+    with open(controlPaths[0], "rb") as f:
         original = f.read()
     forged = bytearray(original)
     forged[64] ^= 0xFF
     forged[124:128] = struct.pack("<I", crc32c(bytes(forged[:124])))
-    with open(manifestPath, "wb") as f:
-        f.write(forged)
+    for path in controlPaths:
+        with open(path, "wb") as f:
+            f.write(forged)
     head = readManifest(store)["head"]
     refuses(writer, store, {}, [(REPLAY, None)], "in committed history; stop and repair core storage", what, False)
-    with open(manifestPath, "wb") as f:
-        f.write(original)
+    for path in controlPaths:
+        with open(path, "wb") as f:
+            f.write(original)
     before = committedView(store)
     relaunch(writer, REPLAY)
     keptAndContinues(prodNode, store, before, f"{what}, after the operator restored block {head}")

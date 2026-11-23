@@ -106,7 +106,10 @@ try:
     pending = [metric(n, "pending_blocks") for n in prodNodes]
     Print(f"During the partition: heads {heads}, LIBs {libs}, writer pending blocks {pending}")
     assert all(lib < libBefore + 10 for lib in libs), f"finality did not stall: LIBs {libs} from {libBefore}"
-    assert all(p >= 20 for p in pending), f"the writers' buffers did not grow during the stall: {pending}"
+    above = [h - lib for h, lib in zip(heads, libs)]
+    assert all(p > 0 and abs(p - a) <= 2 for p, a in zip(pending, above)), \
+        f"the writers' buffers {pending} do not hold the {above} blocks above LIB during the stall"
+    assert max(pending) >= 20, f"the writers' buffers did not grow during the stall: {pending}"
     branches = [{b: n.getBlock(b)["id"] for b in range(libBefore + 1, h + 1)} for n, h in zip(prodNodes, heads)]
     committedDuring = [readManifest(store(n))["head"] for n in prodNodes]
     assert all(c <= lib for c, lib in zip(committedDuring, libs)), f"a writer committed past its LIB: {committedDuring}"
