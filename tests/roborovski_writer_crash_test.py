@@ -5,7 +5,8 @@ import signal
 import time
 
 from TestHarness import Cluster, TestHelper, Utils, WalletMgr
-from roborovski_writer_store import HeadWatcher, checkContiguous, committedView, latestStderr, markDead, readManifest, waitForExit
+from roborovski_writer_store import (HeadWatcher, checkContiguous, committedView, latestStderr, markDead, readManifest, servedHead,
+                                     waitForExit)
 
 # Kills the writer at each live persistence boundary and checks recovery without operator action.
 
@@ -20,7 +21,7 @@ testSuccessful = False
 prodNodeId = 0
 writerNodeId = 1
 FAULT_ENV = "ROBOROVSKI_WRITER_FAULT"
-LIVE_POINTS = ["buffer_synced", "abi_synced", "core_synced", "manifest_renamed", "manifest_dir_synced"]
+LIVE_POINTS = ["buffer_synced", "abi_synced", "core_synced", "manifest_renamed", "manifest_dir_synced", "published_renamed"]
 
 
 def crashAndRecover(prodNode, writer, store, point):
@@ -42,7 +43,7 @@ def crashAndRecover(prodNode, writer, store, point):
     checkContiguous(before, beforeBlocks, f"{point} after the kill")
     Print(f"Fault {point}: killed with block {before['head']} committed; restart with the replay a dirty chainbase needs")
 
-    watcher = HeadWatcher(store, (before["epoch"], before["head"]))
+    watcher = HeadWatcher(store, servedHead(store))
     watcher.start()
     replay = None if "--replay-blockchain" in writer.cmd else "--replay-blockchain"
     assert writer.relaunch(chainArg=replay, timeout=120), f"{point}: writer did not restart"

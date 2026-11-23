@@ -16,14 +16,27 @@ INDEX_ENTRY = struct.Struct("<IQIQQ")
 RECORD_OVERHEAD = 8
 
 
-def readManifest(store):
-    with open(os.path.join(store, "control", "manifest"), "rb") as f:
+def readManifest(store, name="manifest"):
+    with open(os.path.join(store, "control", name), "rb") as f:
         raw = f.read()
     (magic, _, _, coreUUID, abiUUID, epoch, head, abiIndexLen, headID,
      sliceDataEnd, sliceIndexLen, abiFloor, abiDataEnd, _, _) = MANIFEST.unpack(raw)
     assert magic == b"RBMANIF\0", f"bad manifest magic {magic}"
     return {"epoch": epoch, "head": head, "abiIndexLen": abiIndexLen, "headID": headID.hex(), "abiFloor": abiFloor,
             "sliceDataEnd": sliceDataEnd, "sliceIndexLen": sliceIndexLen, "abiDataEnd": abiDataEnd}
+
+
+def readPublished(store):
+    return readManifest(store, "published")
+
+
+def servedHead(store):
+    """(epoch, head) a reader sees through control/published, or (0, 0) before the first publish."""
+    try:
+        p = readPublished(store)
+    except FileNotFoundError:
+        return (0, 0)
+    return (p["epoch"], p["head"])
 
 
 def committedView(store, abiRoot=None):
@@ -84,7 +97,7 @@ def waitForExit(node, timeout):
 
 
 class HeadWatcher(threading.Thread):
-    """Polls the manifest as a reader would and records any move backwards."""
+    """Polls control/published as a reader would and records any move backwards."""
 
     def __init__(self, store, start):
         super().__init__(daemon=True)
@@ -93,7 +106,7 @@ class HeadWatcher(threading.Thread):
     def run(self):
         while not self.stop.is_set():
             try:
-                m = readManifest(self.store)
+                m = readPublished(self.store)
             except (OSError, AssertionError, struct.error):
                 time.sleep(0.01)
                 continue

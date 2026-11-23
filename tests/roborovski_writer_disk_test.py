@@ -9,7 +9,7 @@ import time
 
 from TestHarness import Cluster, TestHelper, Utils, WalletMgr
 from roborovski_writer_store import (HeadWatcher, checkContiguous, committedView, latestStderr, launchExpectingExit,
-                                     markDead, readManifest)
+                                     markDead, readManifest, servedHead)
 
 # Low space, I/O errors and power loss on loop-backed device-mapper volumes; needs root and dm-flakey.
 
@@ -163,7 +163,7 @@ def recovered(prodNode, before, lastSeen, what):
     problem = None
     if (onDisk["epoch"], onDisk["head"]) < lastSeen:
         problem = f"{what}: a reader saw block {lastSeen[1]} published, but only block {onDisk['head']} survived on disk"
-    watcher = HeadWatcher(core.mount, (onDisk["epoch"], onDisk["head"]))
+    watcher = HeadWatcher(core.mount, servedHead(core.mount))
     watcher.start()
     assert relaunch(writer, REPLAY), f"{what}: the writer did not restart"
     try:
@@ -183,9 +183,8 @@ def recovered(prodNode, before, lastSeen, what):
 
 
 def watchedFault(what, start):
-    """Runs start() with a reader polling the manifest and returns the highest (epoch, head) it saw."""
-    m = readManifest(core.mount)
-    watcher = HeadWatcher(core.mount, (m["epoch"], m["head"]))
+    """Runs start() with a reader polling control/published and returns the highest (epoch, head) it saw."""
+    watcher = HeadWatcher(core.mount, servedHead(core.mount))
     watcher.start()
     try:
         start()
@@ -328,7 +327,7 @@ try:
             markDead(writer)
             assert relaunch(writer, REPLAY), "the writer did not restart after a failed case"
 
-    for point in ("buffer_synced", "core_synced", "manifest_renamed", "manifest_dir_synced"):
+    for point in ("buffer_synced", "core_synced", "manifest_renamed", "manifest_dir_synced", "published_renamed"):
         case(powerLoss, prodNode, point)
     for disk in disks:
         case(ioError, prodNode, disk)

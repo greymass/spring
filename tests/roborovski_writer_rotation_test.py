@@ -10,7 +10,7 @@ import sys
 import time
 
 from TestHarness import Utils
-from roborovski_writer_store import HeadWatcher, checkContiguous, committedBlockIDs, committedView, readManifest
+from roborovski_writer_store import HeadWatcher, checkContiguous, committedBlockIDs, committedView, readManifest, servedHead
 
 # Kills the writer at the persistence points a replay past the first slice reaches, then removes and rebuilds a slice.
 
@@ -96,8 +96,7 @@ def crashAt(point, fromBlock):
 
 
 def recover(point, before, upTo):
-    m = readManifest(store) if before else None
-    watcher = HeadWatcher(store, (m["epoch"], m["head"])) if m else None
+    watcher = HeadWatcher(store, servedHead(store)) if before else None
     if watcher:
         watcher.start()
     proc, _ = startNode()
@@ -170,7 +169,8 @@ try:
     for num, digest in kept[1].items():
         assert full[1].get(num) == digest, f"{what}: retained block {num} changed"
 
-    watcher = HeadWatcher(store, (m["epoch"], m["head"]))
+    assert servedHead(store) == (m["epoch"], m["head"]), f"{what}: control/published {servedHead(store)} after the reset"
+    watcher = HeadWatcher(store, servedHead(store))
     watcher.start()
     proc, log = startNode()
     try:
