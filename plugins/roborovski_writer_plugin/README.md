@@ -70,7 +70,7 @@ roborovski-writer-abi-dir = /data/roborovski/core/abis
 | `roborovski-writer-buffer-dir` | `buffer` inside core storage | Accepted blocks that wait for irreversibility. Readers never open it. |
 | `roborovski-writer-headroom-mb` | `4096` | Free space in MiB that must remain on each filesystem the writer uses. nodeos stops below it. |
 | `roborovski-writer-buffer-limit-mb` | `16384` | The most buffered output in MiB awaiting irreversibility. nodeos stops above it. |
-| `roborovski-writer-log-perf` | off | Logs throughput every 10,000 blocks to the `roborovski_writer_perf` logger. |
+| `roborovski-writer-log-interval` | `0` (off) | Seconds between ingestion rate lines on the `roborovski_writer_perf` logger, in coreindex's trace sync line format, for example `Block: 280204974 / 280219472 (100.0%) 2999 BPS \| 1.7 MB (608 B/blk) \| 3.0 acts/blk, 2.5 txns/blk \| glob: 367044615 \| writer: 69 of 1000 ms`. During replay the plugin commits every 1,000 blocks, and an interval of 3 seconds or more smooths those batches. |
 
 Leave `read-mode` at its default, `head`. The plugin captures each block as nodeos applies it, holds it through forks in the buffer, and writes it once it is irreversible. Core storage holds irreversible history only.
 
@@ -106,7 +106,7 @@ Roborovski writer started live at committed block 24850000
 
 The plugin adds two HTTP endpoints to nodeos:
 
-- `/v1/roborovski_writer/metrics` returns Prometheus text. It is in the `prometheus` API category, so `http-category-address` can expose it on its own address.
+- `/v1/roborovski_writer/metrics` returns Prometheus text. It is in the `prometheus` API category, so `http-category-address` can expose it on its own address. nodeos refuses to start with a `prometheus` category address unless `plugin = eosio::prometheus_plugin` is also loaded, as in `examples/config.ini`.
 - `/v1/roborovski_writer/recent` returns the latest blocks with the time nodeos made each irreversible and the time the plugin committed it. `coreverify live-probe` reads it to measure availability.
 
 | Metric | Meaning |
