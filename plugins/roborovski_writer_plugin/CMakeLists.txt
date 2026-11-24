@@ -9,6 +9,7 @@ add_library( roborovski_writer_plugin
              recovery.cpp
              buffer_log.cpp
              fault.cpp
+             progress.cpp
              store.cpp
              ${HEADERS} )
 

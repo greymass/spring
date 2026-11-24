@@ -2,6 +2,7 @@
 #include <eosio/roborovski_writer_plugin/block_builder.hpp>
 #include <eosio/roborovski_writer_plugin/buffer_log.hpp>
 #include <eosio/roborovski_writer_plugin/fault.hpp>
+#include <eosio/roborovski_writer_plugin/progress.hpp>
 #include <eosio/roborovski_writer_plugin/roborovski_writer_plugin.hpp>
 #include <eosio/roborovski_writer_plugin/store.hpp>
 
@@ -34,7 +35,6 @@ fc::logger        _roborovski_writer_log;
 const std::string logger_perf_name("roborovski_writer_perf");
 fc::logger        _roborovski_writer_perf_log;
 
-constexpr uint32_t PERF_LOG_INTERVAL    = 10000;
 constexpr uint32_t REPLAY_COMMIT_BLOCKS = 1000;
 constexpr size_t   PENDING_WARN_HEIGHTS = 7200;
 constexpr size_t   RECENT_RING_SIZE     = 1000;
@@ -119,7 +119,8 @@ struct roborovski_writer_plugin_impl {
    std::filesystem::path buffer_dir;
    uint64_t              headroom_bytes     = 0;
    uint64_t              buffer_limit_bytes = 0;
-   bool                  log_perf           = false;
+   uint32_t              log_interval_s     = 0;
+   uint32_t              replay_target      = 0;
 
    std::optional<scoped_connection> applied_transaction_connection;
    std::optional<scoped_connection> block_start_connection;
@@ -145,9 +146,16 @@ struct roborovski_writer_plugin_impl {
    std::map<uint32_t, int64_t> notified_at;
    writer_metrics              metrics;
 
-   uint64_t                              perf_blocks  = 0;
-   uint64_t                              perf_actions = 0;
-   uint64_t                              perf_bytes   = 0;
+   struct perf_counts {
+      uint64_t blocks       = 0;
+      uint64_t actions      = 0;
+      uint64_t transactions = 0;
+      uint64_t bytes        = 0;
+      uint64_t glob         = 0;
+   };
+   perf_counts                           perf_published;
+   perf_counts                           perf_committed;
+   std::chrono::steady_clock::duration   perf_writer_time{};
    std::chrono::steady_clock::time_point perf_start;
 
    ~roborovski_writer_plugin_impl() {
@@ -173,7 +181,7 @@ struct roborovski_writer_plugin_impl {
    void     check_headroom();
    void     update_first_block();
    uint32_t committed_head() const { return out->committed().head; }
-   void     log_perf_stats(uint32_t block_num);
+      void     log_progress();
 
    template <typename F>
    void guarded(const char* where, F&& f);
@@ -184,8 +192,10 @@ void roborovski_writer_plugin_impl::guarded(const char* where, F&& f) {
    if (failed)
       EOS_THROW(chain::controller_emit_signal_exception, "Roborovski writer stopped after an earlier failure");
    std::string reason;
+   const auto  started = std::chrono::steady_clock::now();
    try {
       f();
+      perf_writer_time += std::chrono::steady_clock::now() - started;
       return;
    } catch (const fc::exception& e) {
       reason = e.to_detail_string();
@@ -214,7 +224,11 @@ void roborovski_writer_plugin_impl::plugin_initialize(const variables_map& optio
                       : core_dir / "buffer";
    headroom_bytes     = options.at("roborovski-writer-headroom-mb").as<uint64_t>() * MIB;
    buffer_limit_bytes = options.at("roborovski-writer-buffer-limit-mb").as<uint64_t>() * MIB;
-   log_perf           = options.at("roborovski-writer-log-perf").as<bool>();
+   log_interval_s     = options.at("roborovski-writer-log-interval").as<uint32_t>();
+   if (log_interval_s > 0)
+      replay_target = block_log_end(options.count("blocks-dir")
+                                        ? resolve(options.at("blocks-dir").as<std::filesystem::path>())
+                                        : app().data_dir() / "blocks");
 
    try {
       configure_fault_hook(std::getenv("ROBOROVSKI_WRITER_FAULT"), _roborovski_writer_log);
@@ -258,7 +272,9 @@ void roborovski_writer_plugin_impl::plugin_initialize(const variables_map& optio
 
    applied_transaction_connection.emplace(chain.applied_transaction().connect(
        [this](std::tuple<const transaction_trace_ptr&, const packed_transaction_ptr&> t) {
+          const auto started = std::chrono::steady_clock::now();
           on_applied_transaction(std::get<0>(t), std::get<1>(t));
+          perf_writer_time += std::chrono::steady_clock::now() - started;
        }));
    block_start_connection.emplace(chain.block_start().connect([this](uint32_t block_num) {
       guarded("block start", [&] { on_block_start(block_num); });
@@ -366,6 +382,9 @@ void roborovski_writer_plugin_impl::catch_up() {
                                          "; restore from a snapshot at or below block " +
                                          std::to_string(committed_head()) + " and replay");
       publish(n, *id);
+      if (log_interval_s > 0)
+         if (auto b = chain.fetch_block_by_number(n))
+            perf_published.transactions += stored_transaction_count(*b);
    }
    commit();
 }
@@ -487,10 +506,12 @@ void roborovski_writer_plugin_impl::on_irreversible_block(const signed_block_ptr
    }
    notified_at[block_num] = now_us();
    publish(block_num, id);
+   if (log_interval_s > 0)
+      perf_published.transactions += stored_transaction_count(*block);
    if (live || ++since_commit >= REPLAY_COMMIT_BLOCKS)
       commit();
-   if (log_perf && perf_blocks >= PERF_LOG_INTERVAL)
-      log_perf_stats(block_num);
+   if (log_interval_s > 0 && std::chrono::steady_clock::now() - perf_start >= std::chrono::seconds(log_interval_s))
+      log_progress();
 }
 
 void roborovski_writer_plugin_impl::verify_committed(uint32_t block_num, const block_id_type& id) {
@@ -535,9 +556,10 @@ void roborovski_writer_plugin_impl::publish(uint32_t block_num, const block_id_t
    const auto block = buffer->read(block_num, *ref);
    out->append(block);
 
-   perf_blocks += 1;
-   perf_actions += block.action_count;
-   perf_bytes += block.raw_size;
+   perf_published.blocks += 1;
+   perf_published.actions += block.action_count;
+   perf_published.bytes += block.raw_size;
+   perf_published.glob = std::max(perf_published.glob, block.glob_max);
 }
 
 void roborovski_writer_plugin_impl::commit() {
@@ -546,6 +568,12 @@ void roborovski_writer_plugin_impl::commit() {
    if (!out->commit())
       return;
    since_commit            = 0;
+   perf_committed.blocks += perf_published.blocks;
+   perf_committed.actions += perf_published.actions;
+   perf_committed.transactions += perf_published.transactions;
+   perf_committed.bytes += perf_published.bytes;
+   perf_committed.glob = std::max(perf_committed.glob, perf_published.glob);
+   perf_published      = {.glob = perf_published.glob};
    const auto&   m         = out->committed();
    const int64_t done      = now_us();
    metrics.committed_block = m.head;
@@ -568,14 +596,24 @@ void roborovski_writer_plugin_impl::commit() {
    metrics.pending_blocks = buffer->highest() > m.head ? buffer->highest() - m.head : 0;
 }
 
-void roborovski_writer_plugin_impl::log_perf_stats(uint32_t block_num) {
-   auto now     = std::chrono::steady_clock::now();
-   auto wall_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - perf_start).count();
-   fc_ilog(_roborovski_writer_perf_log,
-           "block ${b}: ${n} blocks in ${ms} ms, ${a} actions, ${bytes} bytes before compression",
-           ("b", block_num)("n", perf_blocks)("ms", wall_ms)("a", perf_actions)("bytes", perf_bytes));
-   perf_blocks = perf_actions = perf_bytes = 0;
-   perf_start                              = now;
+void roborovski_writer_plugin_impl::log_progress() {
+   const auto   now  = std::chrono::steady_clock::now();
+   const auto   head = committed_head();
+   const double secs = std::chrono::duration<double>(now - perf_start).count();
+   progress_sample s;
+   s.committed    = head;
+   s.target       = std::max(live ? metrics.notified_block.load() : replay_target, head);
+   s.elapsed_s    = secs;
+   s.writer_s     = std::chrono::duration<double>(perf_writer_time).count();
+   s.blocks       = perf_committed.blocks;
+   s.actions      = perf_committed.actions;
+   s.transactions = perf_committed.transactions;
+   s.bytes        = perf_committed.bytes;
+   s.glob         = perf_committed.glob;
+   fc_ilog(_roborovski_writer_perf_log, "${line}", ("line", format_progress(s)));
+   perf_committed   = {.glob = perf_committed.glob};
+   perf_writer_time = {};
+   perf_start       = now;
 }
 
 roborovski_writer_plugin::roborovski_writer_plugin()
@@ -597,8 +635,9 @@ void roborovski_writer_plugin::set_program_options(options_description& cli, opt
            "free space in MiB that must remain on each filesystem the writer uses; nodeos stops below it");
    options("roborovski-writer-buffer-limit-mb", bpo::value<uint64_t>()->default_value(16384),
            "the most buffered output in MiB awaiting irreversibility; nodeos stops above it");
-   options("roborovski-writer-log-perf", bpo::bool_switch()->default_value(false),
-           "log throughput every 10000 blocks to the roborovski_writer_perf logger");
+   options("roborovski-writer-log-interval", bpo::value<uint32_t>()->default_value(0),
+           "seconds between ingestion rate lines on the roborovski_writer_perf logger, in coreindex's sync line "
+           "format; 0 turns them off");
 }
 
 void roborovski_writer_plugin::plugin_initialize(const variables_map& options) {

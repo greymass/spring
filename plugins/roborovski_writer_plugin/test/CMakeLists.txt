@@ -4,6 +4,7 @@ add_executable( test_roborovski_writer_plugin
    test_slice_writer.cpp
    test_buffer_log.cpp
    test_store.cpp
+   test_progress.cpp
    main.cpp
 )
 target_link_libraries( test_roborovski_writer_plugin roborovski_writer_plugin Boost::included_unit_test_framework )
