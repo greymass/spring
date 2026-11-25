@@ -48,7 +48,7 @@ Check that the plugin is in the binary:
 
 Keep the output of `./programs/spring-util/spring-util chain-state build-info` with the commit you built. The release-candidate record asks for both.
 
-The plugin's unit tests build with the rest of Spring and run as `ctest -R roborovski_writer`.
+The plugin's tests build with the rest of Spring and run as `ctest -R roborovski_writer`: the unit tests in `test/`, and the fault and recovery tests in `test/integration/`, which the build copies into its `tests` directory beside Spring's own. `tests/roborovski_writer_gates.sh`, run from the build directory, runs every fault and recovery gate once and keeps the logs.
 
 ## Configure nodeos
 
